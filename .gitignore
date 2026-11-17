@@ -59,3 +59,12 @@ apps/api/src/lib/scrape-interact/*.md
 vitest.out
 
 tmp/
+# Generated state for the optional self-host kit
+/.env.local
+/.env.local.*
+!/.env.local.example
+/.local-state/
+/backups/
+/local-bench/var/
+/local-plugin/runtime/installation.json
+/local-plugin/runtime/node_modules/

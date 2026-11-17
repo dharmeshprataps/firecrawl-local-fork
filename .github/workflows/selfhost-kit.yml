@@ -1,0 +1,58 @@
+name: Self-host kit source checks
+on:
+  push:
+    branches: [main, review/local-additions]
+    tags: ['selfhost-kit-v*']
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+      - name: Install locked gateway test dependencies
+        run: |
+          mkdir -p .local-state/remote-gateway
+          cp local-remote/package.json local-remote/package-lock.json .local-state/remote-gateway/
+          npm ci --ignore-scripts --prefix .local-state/remote-gateway
+      - name: Check source and regressions
+        run: python3 local-ops/check-source.py
+  api-additions:
+    name: Targeted API additions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+      - name: Install exact upstream dependencies without build scripts
+        working-directory: apps/api
+        run: npx --yes pnpm@11.4.0 install --ignore-scripts --frozen-lockfile
+      - name: Run isolated API regressions
+        run: ./local-ops/check-api-additions
+  browser:
+    name: Browser helper tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    defaults:
+      run:
+        working-directory: apps/playwright-service-ts
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+      - run: npx --yes pnpm@11.4.0 install --ignore-scripts --frozen-lockfile
+      - run: npm test
+      - run: npm run build

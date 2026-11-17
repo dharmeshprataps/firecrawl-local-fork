@@ -1,2 +1,8 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Keep self-host fixture PDF offsets and captured source input intact.
+apps/api/src/scraper/scrapeURL/engines/pdf/__fixtures__/*.pdf binary
+local-bench/fixtures/*.pdf binary
+apps/api/src/lib/__fixtures__/screener-quarterly-captured.md -text -whitespace
+local-bench/fixtures/quarterly-results.html -text -whitespace
