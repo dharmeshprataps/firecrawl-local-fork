@@ -17,6 +17,7 @@ import { createFederatedOpenAI } from "./openai-federation";
 import type { TeamFlags } from "../controllers/v2/types";
 import { isUsOnly } from "./us-only";
 import { UsOnlyUnavailableError } from "../scraper/scrapeURL/error";
+import { requireLocalInferenceConfig } from "./local-inference";
 
 type Provider =
   | "openai"
@@ -177,6 +178,17 @@ export function getModel(
   const modelName = options?.ignoreModelOverride
     ? name
     : config.MODEL_NAME || name;
+  if (config.LOCAL_BOUNDED_INFERENCE) {
+    // An operator's unlocated Mac cannot satisfy the upstream US-only contract.
+    if (isUsOnly(options?.teamFlags ?? undefined)) {
+      throw usOnlyUnavailable(options?.feature ?? "Bounded local inference");
+    }
+    const local = requireLocalInferenceConfig(
+      config.OLLAMA_BASE_URL,
+      config.MODEL_NAME,
+    );
+    return withUsageTelemetry(providerList.ollama(local.model));
+  }
   if (isUsOnly(options?.teamFlags ?? undefined)) {
     return withUsageTelemetry(
       getUsOnlyModel(modelName, provider, options?.feature),

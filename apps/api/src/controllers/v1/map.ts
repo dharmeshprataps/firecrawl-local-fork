@@ -1,3 +1,5 @@
+import { SearchProviderError, SearchCapabilityError } from "../../search/searxngClient";
+import { getMapResults as getSharedMapResults } from "../../lib/map-utils";
 import { Response } from "express";
 import { config } from "../../config";
 import { v7 as uuidv7 } from "uuid";
@@ -49,6 +51,9 @@ interface MapResult {
   job_id: string;
   time_taken: number;
   mapResults: MapDocument[];
+  partial?: boolean;
+  warning?: string;
+  discoveryError?: { code: string; status: number };
 }
 
 export async function getMapResults({
@@ -96,6 +101,14 @@ export async function getMapResults({
   headers?: Record<string, string>;
   id?: string;
 }): Promise<MapResult> {
+  if (config.SEARXNG_ENDPOINT) {
+    const result = await getSharedMapResults({
+      url, search, limit, includeSubdomains, teamId, orgId, origin, allowExternalLinks,
+      abort, filterByPath, flags, useIndex, ignoreCache, location, headers, id: providedId,
+      crawlerOptions: { ...crawlerOptions, sitemap: crawlerOptions.sitemapOnly ? "only" : ignoreSitemap ? "skip" : "include", ...(timeout ? { timeout } : {}) },
+    });
+    return { ...result, links: result.mapResults.map(item => item.url), scrape_id: origin?.includes("website") ? result.job_id : undefined };
+  }
   const startTime = Date.now();
   const id = providedId ?? uuidv7();
   let links: string[] = [url];
@@ -485,6 +498,9 @@ export async function mapController(
         : []),
     ])) as any;
   } catch (error) {
+    if (error instanceof SearchProviderError || error instanceof SearchCapabilityError) {
+      return res.status(error.status).json({ success: false, code: error.code, error: error.message });
+    }
     if (error instanceof MapTimeoutError) {
       return res.status(408).json({
         success: false,
@@ -587,6 +603,8 @@ export async function mapController(
     success: true as const,
     links: result.links,
     scrape_id: result.scrape_id,
+    ...(result.warning ? { warning: result.warning } : {}),
+    ...(result.partial ? { partial: true, discoveryError: result.discoveryError } : {}),
   };
 
   return res.status(200).json(response);

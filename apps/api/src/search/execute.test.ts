@@ -11,6 +11,17 @@ const mocks = vi.hoisted(() => ({
   verifyTools: vi.fn(),
 }));
 
+// Search execution/category tests do not exercise crawl-path regex validation.
+// Isolate that unrelated native dependency so these tests also run before the
+// optional Rust module is built; throw if a test actually invokes its validator.
+vi.mock("../lib/crawl-regex", async () => {
+  const { z } = await import("zod");
+  return {
+    pathPatternsSchema: z.array(z.string()),
+    addPathRegexIssues: () => { throw new Error("Native path-regex validation is outside executeSearch unit coverage"); },
+  };
+});
+
 vi.mock("./tool-intent", () => ({
   AUTO_TOOLS_WAIT_MS: 300,
   FUSED_FIT_THRESHOLD: 0.2,
@@ -78,6 +89,7 @@ vi.mock("./safe-search", () => ({
 }));
 
 import { executeSearch } from "./execute";
+import { config } from "../config";
 import { searchRequestSchema } from "../controllers/v2/types";
 import { logger as rootLogger } from "../lib/logger";
 
@@ -967,6 +979,21 @@ describe("executeSearch gov routing", () => {
     expect(mocks.search).not.toHaveBeenCalled();
     expect(result.response).toEqual({ web: [govResult] });
     expect(result.searchCredits).toBe(2);
+  });
+
+  it("does not automatically route an explicitly configured local provider to a hosted index", async () => {
+    const previous = config.SEARXNG_ENDPOINT;
+    config.SEARXNG_ENDPOINT = "http://searxng:8080";
+    mocks.search.mockResolvedValue({ web: [webResult] });
+    mocks.searchGovIfRouted.mockResolvedValue([govResult]);
+    try {
+      const result = await executeSearch(options([]), context, logger);
+      expect(mocks.searchGovIfRouted).not.toHaveBeenCalled();
+      expect(mocks.search).toHaveBeenCalledTimes(1);
+      expect(result.response.web?.map(item => item.url)).toEqual([webResult.url]);
+    } finally {
+      config.SEARXNG_ENDPOINT = previous;
+    }
   });
 
   it("starts the regular web search only after the routing decision and serves it when the search is not routed", async () => {

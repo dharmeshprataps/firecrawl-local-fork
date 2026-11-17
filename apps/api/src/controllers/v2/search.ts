@@ -1,3 +1,4 @@
+import { SearchProviderError, SearchCapabilityError } from "../../search/searxngClient";
 import { Response } from "express";
 import { externalRequestId } from "../../lib/external-request-id";
 import { config } from "../../config";
@@ -237,9 +238,14 @@ async function searchControllerInner(
           }
         : null;
 
+    if (config.SEARXNG_ENDPOINT && (indexCategory || wantsTools || wantsSkills || req.body.domainTools)) {
+      throw new SearchCapabilityError("The configured local search provider supports ordinary web search, not hosted indexes or provider discovery.");
+    }
+
     if (indexCategory) {
       const indexRestriction = await checkKeyEndpointRestriction(
         indexCategory.endpoint,
+
         req.acuc?.api_key_id,
         req.acuc?.flags ?? null,
       );
@@ -553,9 +559,10 @@ async function searchControllerInner(
         highlights: req.body.highlights,
         domainTools: req.body.domainTools,
         toolDetail: req.body.toolDetail,
-        inferToolQuery: queryInferenceEnabled(),
-        toolFusion: toolFusionEnabled(req.acuc?.flags),
+        inferToolQuery: !config.SEARXNG_ENDPOINT && queryInferenceEnabled(),
+        toolFusion: !config.SEARXNG_ENDPOINT && toolFusionEnabled(req.acuc?.flags),
         autoTools:
+          !config.SEARXNG_ENDPOINT &&
           (sourcesOmitted || req.body.domainTools === true) &&
           !req.auth.team_id.startsWith("preview_keyless_") &&
           config.FIRE_EXCHANGE_URL !== undefined &&
@@ -742,6 +749,10 @@ async function searchControllerInner(
       adjustKeylessCredits(req.auth.team_id, -reservedKeylessCredits).catch(
         () => {},
       );
+    }
+
+    if (error instanceof SearchProviderError || error instanceof SearchCapabilityError) {
+      return res.status(error.status).json({ success: false, code: error.code, error: error.message });
     }
 
     if (error instanceof z.ZodError) {

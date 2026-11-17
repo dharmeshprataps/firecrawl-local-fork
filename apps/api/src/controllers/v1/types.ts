@@ -1244,6 +1244,9 @@ export type MapResponse =
   | ErrorResponse
   | {
       success: true;
+      partial?: boolean;
+      discoveryError?: { code: string; status: number };
+      warning?: string;
       links: string[];
       scrape_id?: string;
     };

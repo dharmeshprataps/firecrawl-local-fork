@@ -1,3 +1,4 @@
+import { SearchProviderError, SearchCapabilityError } from "../../search/searxngClient";
 import { Response } from "express";
 import { config } from "../../config";
 import { timingSafeSecretEqual } from "../../lib/secret-compare";
@@ -366,6 +367,8 @@ export async function searchController(
         url: d.url,
         title: d.title,
         description: d.description,
+        ...(d.date ? { date: d.date } : {}),
+        ...(d.publishedDate ? { publishedDate: d.publishedDate } : {}),
       })) as Document[];
     }
 
@@ -447,6 +450,10 @@ export async function searchController(
       adjustKeylessCredits(req.auth.team_id, -reservedKeylessCredits).catch(
         () => {},
       );
+    }
+
+    if (error instanceof SearchProviderError || error instanceof SearchCapabilityError) {
+      return res.status(error.status).json({ success: false, code: error.code, error: error.message });
     }
 
     if (error instanceof z.ZodError) {

@@ -1,4 +1,6 @@
 import { Logger } from "winston";
+import { config } from "../../../config";
+import type { ExtractionGrounding } from "../../../lib/grounded-quarterly";
 import { z } from "zod";
 import {
   generateCompletions,
@@ -285,6 +287,7 @@ export async function extractData({
   metadata: { teamId: string; functionId?: string };
 }): Promise<{
   extractedDataArray: any[];
+  grounding?: ExtractionGrounding;
   warning: any;
   costLimitExceededTokenUsage: number | null;
 }> {
@@ -300,6 +303,23 @@ export async function extractData({
     extractOptions.markdown.length > MAX_JSON_EXTRACTION_MARKDOWN_CHARS
   ) {
     throw new JsonExtractionContentTooLargeError();
+  }
+
+  // The opt-in bounded profile extracts from already scraped content. Retain
+  // the upstream size guard above and never enter a Cloud repair/agent path.
+  if (config.LOCAL_BOUNDED_INFERENCE) {
+    if (useAgent) {
+      throw new Error(
+        "Cloud SmartScrape agent extraction is unavailable in local-only mode; supply explicit browser actions instead",
+      );
+    }
+    const result = await generateCompletions(extractOptions);
+    return {
+      extractedDataArray: [result.extract],
+      grounding: result.grounding,
+      warning: result.warning,
+      costLimitExceededTokenUsage: null,
+    };
   }
 
   // TODO: remove the "required" fields here!! it breaks o3-mini

@@ -1,6 +1,7 @@
-import { Document } from "../../../controllers/v2/types";
-import { Meta } from "..";
+import type { Document } from "../../../controllers/v2/types";
+import type { Meta } from "..";
 import { extractAttributes } from "../lib/extractAttributes";
+import { attributeLookupHtml } from "../lib/attributeLookupHtml";
 import { hasFormatOfType } from "../../../lib/format-utils";
 
 /**
@@ -25,7 +26,7 @@ export async function performAttributes(
   if (attributesFormat.selectors && attributesFormat.selectors.length > 0) {
     try {
       const attributes = await extractAttributes(
-        document.html,
+        attributeLookupHtml(document.html, document.rawHtml),
         attributesFormat.selectors,
       );
 

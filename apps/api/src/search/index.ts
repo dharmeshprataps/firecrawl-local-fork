@@ -5,6 +5,7 @@ import { fire_engine_search } from "./fireEngine";
 import { Logger } from "winston";
 import { ddgSearch } from "./v2/ddgsearch";
 import { search as searchV2 } from "./v2";
+import { SearchCapabilityError } from "./searxngClient";
 import { UsOnlyUnavailableError } from "../scraper/scrapeURL/error";
 
 export async function search({
@@ -38,6 +39,16 @@ export async function search({
   usOnly?: boolean;
   enterprise?: ("anon" | "zdr")[];
 }): Promise<SearchResult[]> {
+  if (config.SEARXNG_ENDPOINT) {
+    if (usOnly) {
+      throw new UsOnlyUnavailableError("The configured local search provider cannot guarantee US-only processing.");
+    }
+    if (enterprise?.length) {
+      throw new SearchCapabilityError("The configured local search provider does not implement anonymous or zero-data-retention routing.");
+    }
+    logger.info("Using configured local SearXNG search");
+    return searxng_search(query, { num_results, tbs, filter, lang, country, location });
+  }
   // The fallback backends below take no US-only routing.
   if (usOnly && !config.FIRE_ENGINE_BETA_URL) {
     throw new UsOnlyUnavailableError(

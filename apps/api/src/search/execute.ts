@@ -395,7 +395,7 @@ export async function executeSearch(
   // search, so a routed search never starts it. An unrouted one, or a routed
   // one whose platform search fails, starts the regular web search after the
   // decision.
-  const routedResults = plainWebSearch
+  const routedResults = plainWebSearch && !config.SEARXNG_ENDPOINT
     ? await searchGovIfRouted(indexSearchOptions, context.jobId, logger)
     : null;
   const webSearchPromise =

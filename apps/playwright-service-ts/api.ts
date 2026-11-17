@@ -12,6 +12,8 @@ import UserAgent from 'user-agents';
 import { getError } from './helpers/get_error';
 import { Server } from 'proxy-chain';
 import { isInternalHost, ssrfPrepareRequest } from './helpers/ssrf';
+import { isLocalFixtureUrl, isLocalFixtureProxyRequest } from './helpers/local_fixture';
+import { LocalAction, LocalScreenshot, validateLocalActions, runLocalActions } from './helpers/local_actions';
 
 dotenv.config();
 
@@ -56,7 +58,7 @@ const assertSafeTargetUrl = async (urlString: string): Promise<void> => {
       `unsupported protocol "${parsedUrl.protocol}"`,
     );
   }
-  if (!ALLOW_LOCAL_WEBHOOKS && (await isInternalHost(parsedUrl.hostname))) {
+  if (!ALLOW_LOCAL_WEBHOOKS && !isLocalFixtureUrl(parsedUrl) && (await isInternalHost(parsedUrl.hostname))) {
     throw new InsecureConnectionError(
       urlString,
       'resolves to a private/internal address',
@@ -79,10 +81,15 @@ const startSSRFProxy = async (): Promise<number> => {
   const server = new Server({
     port: 0,
     host: '127.0.0.1',
-    prepareRequestFunction: ssrfPrepareRequest({
-      allowLocal: ALLOW_LOCAL_WEBHOOKS,
-      upstreamProxyUrl: buildUpstreamProxyUrl(),
-    }),
+    prepareRequestFunction: async (options) => {
+      // Only the exact controlled HTTP fixture may bypass public-address
+      // resolution. All normal traffic retains upstream DNS pinning.
+      if (isLocalFixtureProxyRequest(options)) return {};
+      return ssrfPrepareRequest({
+        allowLocal: ALLOW_LOCAL_WEBHOOKS,
+        upstreamProxyUrl: buildUpstreamProxyUrl(),
+      })(options);
+    },
   });
   await server.listen();
   return server.port;
@@ -156,6 +163,8 @@ interface UrlModel {
   headers?: { [key: string]: string };
   check_selector?: string;
   skip_tls_verification?: boolean;
+  actions?: LocalAction[];
+  screenshot?: LocalScreenshot;
 }
 
 let browser: Browser;
@@ -357,16 +366,20 @@ app.post('/scrape', async (req: Request, res: Response) => {
     headers,
     check_selector,
     skip_tls_verification = false,
+    actions = [],
+    screenshot,
   }: UrlModel = req.body;
 
   console.log(`================= Scrape Request =================`);
   console.log(`URL: ${url}`);
   console.log(`Wait After Load: ${wait_after_load}`);
   console.log(`Timeout: ${timeout}`);
-  console.log(`Headers: ${headers ? JSON.stringify(headers) : 'None'}`);
+  console.log(`Headers: ${headers ? Object.keys(headers).join(',') : 'None'}`);
   console.log(`Check Selector: ${check_selector ? check_selector : 'None'}`);
   console.log(`Skip TLS Verification: ${skip_tls_verification}`);
   console.log(`==================================================`);
+
+  try { validateLocalActions(actions, screenshot); } catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid local browser options' }); }
 
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
@@ -404,8 +417,25 @@ app.post('/scrape', async (req: Request, res: Response) => {
   let requestContext: BrowserContext | null = null;
   let securityState: ContextSecurityState | null = null;
   let page: Page | null = null;
+  const localController = actions.length > 0 || screenshot !== undefined ? new AbortController() : undefined;
+  let localDeadline: number | undefined;
+  let localTimer: ReturnType<typeof setTimeout> | undefined;
+  const abortLocalWork = (error: Error) => {
+    if (!localController || localController.signal.aborted) return;
+    localController.abort(error);
+    // Closing the page also interrupts an in-flight goto, selector, or click.
+    void page?.close().catch(() => {});
+  };
+  const onClientClose = () => {
+    if (!res.writableEnded) abortLocalWork(new Error('Local browser client disconnected'));
+  };
+  if (localController) {
+    res.on('close', onClientClose);
+    if (res.destroyed) onClientClose();
+  }
 
   try {
+    localController?.signal.throwIfAborted();
     // Extract user-agent from request headers (case-insensitive) so it can
     // be applied at the context level.  Playwright ignores user-agent in
     // setExtraHTTPHeaders when the context already defines one (#2802).
@@ -422,6 +452,20 @@ app.post('/scrape', async (req: Request, res: Response) => {
     requestContext = contextBundle.context;
     securityState = contextBundle.securityState;
     page = await requestContext.newPage();
+    localController?.signal.throwIfAborted();
+    let navigationStatus: number | undefined;
+    let navigationContentType: string | undefined;
+    if (actions.length > 0) {
+      page.setDefaultTimeout(5000);
+      page.setDefaultNavigationTimeout(Math.min(timeout, 10000));
+      const activePage = page;
+      activePage.on('response', (response) => {
+        if (response.request().isNavigationRequest() && response.frame() === activePage.mainFrame()) {
+          navigationStatus = response.status();
+          navigationContentType = response.headers()['content-type'];
+        }
+      });
+    }
 
     if (headers) {
       // A Cookie header passed through setExtraHTTPHeaders is sent on the first
@@ -493,6 +537,11 @@ app.post('/scrape', async (req: Request, res: Response) => {
       }
     }
 
+    if (localController) {
+      // The forwarded scrape timeout covers navigation and all local actions.
+      localDeadline = Date.now() + timeout;
+      localTimer = setTimeout(() => abortLocalWork(new Error('Local browser request timed out')), timeout);
+    }
     const result = await scrapePage(
       page,
       url,
@@ -502,8 +551,11 @@ app.post('/scrape', async (req: Request, res: Response) => {
       check_selector,
       securityState,
     );
-    const pageError =
-      result.status !== 200 ? getError(result.status) : undefined;
+    const localResult = await runLocalActions(page, actions, screenshot, { deadline: localDeadline, signal: localController?.signal });
+    if (securityState.blockedNavigationRequestUrl) throw new InsecureConnectionError(securityState.blockedNavigationRequestUrl, 'action navigation to private/internal resource is not allowed');
+    if (actions.length) result.content = await page.content();
+    const finalStatus = actions.length > 0 ? navigationStatus ?? result.status : result.status;
+    const pageError = finalStatus !== 200 ? getError(finalStatus) : undefined;
 
     if (!pageError) {
       console.log(`✅ Scrape successful!`);
@@ -515,12 +567,23 @@ app.post('/scrape', async (req: Request, res: Response) => {
 
     res.json({
       content: result.content,
-      pageStatusCode: result.status,
-      contentType: result.contentType,
-      url: result.url,
+      pageStatusCode: finalStatus,
+      ...(localResult.screenshot && { screenshot: localResult.screenshot }),
+      ...(actions.length > 0 && { actions: localResult.actions }),
+      contentType: actions.length > 0 && navigationStatus !== undefined ? navigationContentType : result.contentType,
+      // Preserve the source URL of raw JSON/text responses; only browser
+      // actions replace it with their final navigation URL.
+      url: actions.length > 0 ? page.url() : result.url,
       ...(pageError && { pageError }),
     });
   } catch (error) {
+    if (localController && localDeadline !== undefined && Date.now() >= localDeadline) {
+      abortLocalWork(new Error('Local browser request timed out'));
+    }
+    if (localController?.signal.aborted) {
+      if (!res.destroyed) res.status(408).json({ error: localController.signal.reason?.message ?? 'Local browser request cancelled' });
+      return;
+    }
     if (error instanceof InsecureConnectionError) {
       return res.json({
         content: '',
@@ -533,6 +596,8 @@ app.post('/scrape', async (req: Request, res: Response) => {
       .status(500)
       .json({ error: 'An error occurred while fetching the page.' });
   } finally {
+    if (localTimer) clearTimeout(localTimer);
+    if (localController) res.removeListener('close', onClientClose);
     if (page) await page.close();
     if (requestContext) await requestContext.close();
     pageSemaphore.release();

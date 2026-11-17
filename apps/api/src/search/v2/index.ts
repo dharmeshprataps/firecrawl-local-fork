@@ -4,6 +4,7 @@ import { fire_engine_search_v2 } from "./fireEngine-v2";
 import { searxng_search } from "./searxng";
 import { ddgSearch } from "./ddgsearch";
 import { Logger } from "winston";
+import { SearchCapabilityError } from "../searxngClient";
 import { UsOnlyUnavailableError } from "../../scraper/scrapeURL/error";
 import type { TeamPlanClass } from "../../lib/team-plan-class";
 
@@ -51,6 +52,20 @@ export async function search({
   /** The team's plan class, when the caller knows it. Omitted, nothing is stated. */
   teamPlanClass?: TeamPlanClass;
 }): Promise<SearchV2Response> {
+  if (config.SEARXNG_ENDPOINT) {
+    if (usOnly) {
+      throw new UsOnlyUnavailableError("The configured local search provider cannot guarantee US-only processing.");
+    }
+    const requested = type === undefined ? ["web"] : Array.isArray(type) ? type : [type];
+    if (requested.some(source => source !== "web")) {
+      throw new SearchCapabilityError("Local search supports web results only; image and news search require another provider.");
+    }
+    if (enterprise?.some(mode => mode !== "default")) {
+      throw new SearchCapabilityError("The configured local search provider does not implement anonymous or zero-data-retention routing.");
+    }
+    logger.info("Using configured local SearXNG search");
+    return searxng_search(query, { num_results, tbs, filter, lang, country, location, safe });
+  }
   // The fallback backends below take no US-only routing.
   if (usOnly && !config.FIRE_ENGINE_BETA_URL) {
     throw new UsOnlyUnavailableError(
@@ -78,23 +93,6 @@ export async function search({
       });
 
       return results;
-    }
-
-    // includeDomains/excludeDomains are enforced on returned URLs only on
-    // the fire engine path above; the fallback providers below receive them
-    // solely as the site: chain baked into the query.
-    if (config.SEARXNG_ENDPOINT) {
-      logger.info("Using searxng search");
-      const results = await searxng_search(query, {
-        num_results,
-        tbs,
-        filter,
-        lang,
-        country,
-        location,
-        safe,
-      });
-      if (results.web && results.web.length > 0) return results;
     }
 
     logger.info("Using DuckDuckGo search");
