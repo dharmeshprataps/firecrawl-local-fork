@@ -1,3 +1,5 @@
+> This community fork adds an optional Apple Silicon self-hosting profile and focused local patches. See [SELFHOST_KIT.md](SELFHOST_KIT.md) for our additions and tests. Upstream Firecrawl documentation follows below.
+
 <h3 align="center">
   <a name="readme-top"></a>
   <img

@@ -1,0 +1,31 @@
+
+> playwright-scraper-api@1.0.0 test
+> node --import tsx --test --test-force-exit helpers/*.spec.ts
+
+(node:71035) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✔ rejects arbitrary JavaScript and unbounded browser work before execution (0.453375ms)
+✔ keeps action results in order and bounds screenshot dimensions and output (0.61025ms)
+✔ shared deadline interrupts a pending wait and prevents later actions (32.180042ms)
+✔ client cancellation interrupts a pending selector without executing later actions (0.517041ms)
+(node:71036) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✔ the fixture exception is disabled unless explicitly configured (67.396875ms)
+✔ only the exact configured fixture origin is allowed (0.735209ms)
+✔ proxy fixture exception checks both URL and authority and never CONNECT (0.276791ms)
+(node:71037) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✔ resolvePublicAddresses rejects non-unicast addresses (1.76125ms)
+✔ resolvePublicAddresses rejects a host if any address is internal (0.299875ms)
+✔ pinnedLookup makes the socket connect to the pinned address without DNS (6.247292ms)
+✔ proxy returns 403 for a host that resolves to a private address (5.754667ms)
+✔ proxy does not resolve the host again at connect time (DNS rebinding) (1003.963291ms)
+✔ with an upstream proxy, no dnsLookup is pinned (0.81ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1223.096375
