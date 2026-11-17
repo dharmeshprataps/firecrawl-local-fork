@@ -1,3 +1,4 @@
+import { SearchProviderError, SearchCapabilityError } from "../../search/searxngClient";
 import { Response } from "express";
 import {
   mapRequestSchema,
@@ -245,6 +246,9 @@ export async function mapController(
         : []),
     ])) as any;
   } catch (error) {
+    if (error instanceof SearchProviderError || error instanceof SearchCapabilityError) {
+      return res.status(error.status).json({ success: false, code: error.code, error: error.message });
+    }
     if (error instanceof MapTimeoutError) {
       return res.status(408).json({
         success: false,
@@ -363,7 +367,8 @@ export async function mapController(
     success: true as const,
     id: result.job_id,
     links: result.mapResults,
-    ...(warning && { warning }),
+    ...((result.warning || warning) && { warning: [result.warning, warning].filter(Boolean).join(" ") }),
+    ...(result.partial ? { partial: true, discoveryError: result.discoveryError } : {}),
   };
 
   return res.status(200).json(response);

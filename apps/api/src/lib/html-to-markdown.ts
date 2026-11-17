@@ -6,6 +6,7 @@ import { stat } from "fs/promises";
 import { HTML_TO_MARKDOWN_PATH } from "../natives";
 import { convertHTMLToMarkdownWithHttpService } from "./html-to-markdown-client";
 import { postProcessMarkdown } from "@mendable/firecrawl-rs";
+import { protectHtmlCode } from "./html-code-preservation";
 
 // TODO: add a timeout to the Go parser
 
@@ -64,16 +65,20 @@ export async function parseMarkdown(
   const contextLogger = context?.logger || logger;
   const requestId = context?.requestId;
   const zeroDataRetention = context?.zeroDataRetention === true;
+  const { html: protectedHtml, restore: restoreCode } = protectHtmlCode(html);
 
   // Try HTTP service first if enabled
   if (config.HTML_TO_MARKDOWN_SERVICE_URL) {
     try {
-      let markdownContent = await convertHTMLToMarkdownWithHttpService(html, {
-        logger: contextLogger,
-        requestId,
-        zeroDataRetention,
-      });
-      markdownContent = await postProcessMarkdown(markdownContent);
+      let markdownContent = await convertHTMLToMarkdownWithHttpService(
+        protectedHtml,
+        {
+          logger: contextLogger,
+          requestId,
+          zeroDataRetention,
+        },
+      );
+      markdownContent = restoreCode(await postProcessMarkdown(markdownContent));
       return markdownContent;
     } catch (error) {
       contextLogger.error(
@@ -86,8 +91,9 @@ export async function parseMarkdown(
   try {
     if (config.USE_GO_MARKDOWN_PARSER) {
       const converter = await GoMarkdownConverter.getInstance();
-      let markdownContent = await converter.convertHTMLToMarkdown(html);
-      markdownContent = await postProcessMarkdown(markdownContent);
+      let markdownContent =
+        await converter.convertHTMLToMarkdown(protectedHtml);
+      markdownContent = restoreCode(await postProcessMarkdown(markdownContent));
       return markdownContent;
     }
   } catch (error) {
@@ -129,8 +135,8 @@ export async function parseMarkdown(
   turndownService.use(gfm);
 
   try {
-    let markdownContent = await turndownService.turndown(html);
-    markdownContent = await postProcessMarkdown(markdownContent);
+    let markdownContent = await turndownService.turndown(protectedHtml);
+    markdownContent = restoreCode(await postProcessMarkdown(markdownContent));
 
     return markdownContent;
   } catch (error) {

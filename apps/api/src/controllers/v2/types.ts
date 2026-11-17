@@ -1501,6 +1501,8 @@ export type DocumentProvider = {
 };
 
 export type Document = {
+  date?: string;
+  publishedDate?: string;
   title?: string;
   description?: string;
   url?: string;
@@ -1607,6 +1609,7 @@ export type Document = {
     numPages?: number;
     totalPages?: number;
     contentType?: string;
+    extractionGrounding?: Record<string, unknown>;
     timezone?: string;
     proxyUsed: "basic" | "stealth";
     cacheState?: "hit" | "miss";
@@ -2030,6 +2033,8 @@ export type MapResponse =
   | (ErrorResponse & { id?: string })
   | {
       success: true;
+      partial?: boolean;
+      discoveryError?: { code: string; status: number };
       id: string;
       links?: MapDocument[];
       warning?: string;

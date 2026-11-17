@@ -1,3 +1,4 @@
+import { config } from "../config";
 import { v7 as uuidv7 } from "uuid";
 import {
   TeamFlags,
@@ -17,6 +18,9 @@ import {
 } from "./validateUrl";
 import { fireEngineMap } from "../search/fireEngine";
 import { isUsOnly } from "./us-only";
+import { UsOnlyUnavailableError } from "../scraper/scrapeURL/error";
+import { SearchProviderError } from "../search/searxngClient";
+import { discoverMapLinks } from "../search/localMapLinks";
 import { redisEvictConnection } from "../services/redis";
 import {
   generateURLSplits,
@@ -34,6 +38,9 @@ export interface MapResult {
   job_id: string;
   time_taken: number;
   mapResults: MapDocument[];
+  partial?: boolean;
+  warning?: string;
+  discoveryError?: { code: string; status: number };
 }
 
 function dedupeMapDocumentArray(documents: MapDocument[]): MapDocument[] {
@@ -132,6 +139,10 @@ export async function getMapResults({
   const indexOnly =
     resolveSafeMode(flags, undefined, url).safeMode?.lockdown === true;
 
+  if (config.SEARXNG_ENDPOINT && !indexOnly && isUsOnly(flags)) {
+    throw new UsOnlyUnavailableError("The configured local map provider cannot guarantee US-only processing.");
+  }
+
   // Under lockdown (index-only) resolving redirects would HEAD/GET the target,
   // which the zero-outbound guarantee forbids — use the URL as given.
   const resolvedUrl = indexOnly ? url : await resolveRedirects(url, abort);
@@ -152,13 +163,18 @@ export async function getMapResults({
     requestZeroDataRetention || getScrapeZDR(flags) === "forced" || indexOnly;
   // The site search is a query sent to a search provider, so it also follows
   // the team's search zero data retention.
+  const searchForcedKind = getSearchForcedKind(flags);
   const searchZeroDataRetention =
-    zeroDataRetention || getSearchForcedKind(flags) === "zdr";
+    zeroDataRetention || searchForcedKind === "zdr" ||
+    (Boolean(config.SEARXNG_ENDPOINT) && searchForcedKind === "anon");
+  let providerError: SearchProviderError | undefined;
+  let htmlFallback = false;
 
   const sc: StoredCrawl = {
     originUrl: url,
     crawlerOptions: {
       ...crawlerOptions,
+      ...(config.SEARXNG_ENDPOINT ? { allowSubdomains: includeSubdomains, ...(!filterByPath ? { allowBackwardCrawling: true } : {}) } : {}),
       limit: crawlerOptions.sitemapOnly ? 10000000 : limit,
       scrapeOptions: undefined,
     },
@@ -174,15 +190,17 @@ export async function getMapResults({
 
   const crawler = crawlToCrawler(id, sc, flags);
 
-  try {
-    sc.robots = await crawler.getRobotsTxt(false, abort);
-    crawler.importRobotsTxt(sc.robots);
-  } catch (_) {
-    // Robots.txt fetch failed, continue without it
+  if (!indexOnly) {
+    try {
+      sc.robots = await crawler.getRobotsTxt(false, abort);
+      crawler.importRobotsTxt(sc.robots);
+    } catch (_) {
+      // Robots.txt fetch failed, continue without it
+    }
   }
 
   // If sitemapOnly is true, only get links from sitemap
-  if (crawlerOptions.sitemap === "only") {
+  if (crawlerOptions.sitemap === "only" && !indexOnly) {
     const sitemap = await crawler.tryGetSitemap(
       urls => {
         urls.forEach(x => {
@@ -228,7 +246,10 @@ export async function getMapResults({
     );
 
     const usOnly = isUsOnly(flags);
-    const cacheKey = `fireEngineMap:${usOnly ? "us-only:" : ""}${mapUrl}`;
+    const providerCache = config.SEARXNG_ENDPOINT
+      ? `searxng-v2:${config.SEARXNG_ENDPOINT}:${config.SEARXNG_ENGINES ?? ""}:${config.SEARXNG_CATEGORIES ?? ""}`
+      : "fireEngineMap";
+    const cacheKey = `${providerCache}:${usOnly ? "us-only:" : ""}${mapUrl}`;
     const cachedResult = ignoreCache
       ? null
       : await redisEvictConnection.get(cacheKey);
@@ -237,10 +258,11 @@ export async function getMapResults({
       return await fireEngineMap(
         mapUrl,
         {
-          numResults: resultsPerPage,
+          numResults: config.SEARXNG_ENDPOINT ? Math.min(resultsPerPage, limit) : resultsPerPage,
           page,
           usOnly,
           zeroDataRetention: searchZeroDataRetention,
+          mapScope: url,
         },
         abort,
       );
@@ -265,45 +287,27 @@ export async function getMapResults({
       return [page1Result, ...remainingPages];
     };
 
+    // An unavailable search engine must not discard independent sitemap discovery.
+    const sitemapResults: MapDocument[] = [];
+    const sitemapWork = !indexOnly && crawlerOptions.sitemap === "include" ? crawler.tryGetSitemap(
+      urls => { sitemapResults.push(...urls.map(x => ({ url: x }))); },
+      true, false, crawlerOptions.timeout ?? 30000, abort, undefined, ignoreCache ? 0 : undefined,
+    ).catch(() => undefined) : Promise.resolve();
     const [indexResults, searchResults] = await Promise.all([
       queryIndex(url, limit, useIndex, includeSubdomains),
-      fetchAllPages(),
+      fetchAllPages().catch(error => {
+        if (!config.SEARXNG_ENDPOINT || !(error instanceof SearchProviderError)) throw error;
+        providerError = error;
+        return [];
+      }),
+      sitemapWork,
     ]);
 
-    if (!searchZeroDataRetention) {
-      await redisEvictConnection.set(
-        cacheKey,
-        JSON.stringify(searchResults),
-        "EX",
-        48 * 60 * 60,
-      ); // Cache for 48 hours
+    // Never cache an unavailable provider or bypass upstream retention policy.
+    if (!searchZeroDataRetention && !providerError) {
+      await redisEvictConnection.set(cacheKey, JSON.stringify(searchResults), "EX", config.SEARXNG_ENDPOINT ? 600 : 48 * 60 * 60);
     }
-
-    if (indexResults.length > 0) {
-      mapResults.push(...indexResults);
-    }
-
-    if (crawlerOptions.sitemap === "include" && !indexOnly) {
-      try {
-        await crawler.tryGetSitemap(
-          urls => {
-            mapResults.push(
-              ...urls.map(x => ({
-                url: x,
-              })),
-            );
-          },
-          true,
-          false,
-          crawlerOptions.timeout ?? 30000,
-          abort,
-          undefined,
-          ignoreCache ? 0 : undefined,
-        );
-      } catch (e) {
-        // Silently handle sitemap errors
-      }
-    }
+    mapResults.push(...indexResults, ...sitemapResults);
 
     if (search) {
       mapResults = searchResults
@@ -327,9 +331,62 @@ export async function getMapResults({
       );
     }
 
-    const minimumCutoff = Math.min(MAX_MAP_LIMIT, limit);
-    if (mapResults.length > minimumCutoff) {
-      mapResults = mapResults.slice(0, minimumCutoff);
+    const inRequestedScope = (candidate: string): boolean => {
+      try {
+        if (!isSameDomain(candidate, url) || (!includeSubdomains && !isSameSubdomain(candidate, url))) return false;
+        if (!filterByPath || allowExternalLinks) return true;
+        const prefix = new URL(url).pathname.replace(/\/$/, "");
+        const path = new URL(candidate).pathname;
+        return !prefix || path === prefix || path.startsWith(prefix + "/");
+      } catch { return false; }
+    };
+    // Count the same canonical URLs that survive the final scope/dedup pass.
+    // Search duplicates, query variants and out-of-scope links cannot fill the
+    // requested inventory and must not prevent this single seed-page read.
+    const usableUrls = new Set<string>();
+    for (const item of mapResults) {
+      try {
+        const canonical = checkAndUpdateURLForMap(
+          item.url,
+          crawlerOptions.ignoreQueryParameters ?? true,
+        ).url.trim();
+        if (inRequestedScope(canonical)) usableUrls.add(canonical);
+      } catch { /* Invalid discovery URLs do not count toward the limit. */ }
+    }
+    const usableCount = usableUrls.size;
+    // Unfiltered local inventories may supplement an underfilled successful
+    // search. Explicit filtered searches retain their existing fallback policy.
+    if (!indexOnly && config.SEARXNG_ENDPOINT && (providerError || usableCount === 0 || !search) && usableCount < limit) {
+      try {
+        // Respect the crawler's robots/exclusion policy for this read and its links.
+        const seedPermission = await crawler.filterURL(url, url);
+        if (seedPermission.allowed) {
+          const discovered = await discoverMapLinks({
+            url, limit, includeSubdomains, filterByPath: filterByPath && !allowExternalLinks,
+            signal: abort, headers,
+            extractLinks: async (html, base) => {
+              const links = await crawler.extractLinksFromContent(html, base, "text/html");
+              // Current upstream extraction keeps robots-denied links so its
+              // later filterLinks stage can report them. Map has no such stage.
+              const allowed: string[] = [];
+              for (const link of links.slice(0, 1000)) {
+                abort.throwIfAborted();
+                const permission = await crawler.filterURL(link, base);
+                if (permission.allowed && permission.url) allowed.push(permission.url);
+              }
+              return allowed;
+            },
+          });
+          htmlFallback = discovered.length > 0;
+          mapResults.push(...discovered);
+        }
+      } catch (error) { if (abort.aborted) throw error; }
+    }
+
+    // Keep current upstream ordering behavior outside the local provider path.
+    if (!config.SEARXNG_ENDPOINT) {
+      const minimumCutoff = Math.min(MAX_MAP_LIMIT, limit);
+      if (mapResults.length > minimumCutoff) mapResults = mapResults.slice(0, minimumCutoff);
     }
 
     if (search) {
@@ -370,7 +427,8 @@ export async function getMapResults({
         mapResults = mapResults.filter(x => {
           try {
             const linkObj = new URL(x.url);
-            return linkObj.pathname.startsWith(urlPath);
+            const prefix = urlPath.replace(/\/$/, "");
+            return linkObj.pathname === prefix || linkObj.pathname.startsWith(prefix + "/");
           } catch (e) {
             return false;
           }
@@ -384,6 +442,8 @@ export async function getMapResults({
   mapResults = dedupeMapDocumentArray(mapResults);
   mapResults = mapResults.slice(0, limit);
 
+  if (providerError && mapResults.length === 0) throw providerError;
+
   const totalTimeMs = Date.now() - functionStartTime;
 
   return {
@@ -391,6 +451,8 @@ export async function getMapResults({
     mapResults,
     job_id: id,
     time_taken: totalTimeMs,
+    ...(providerError ? { partial: true, warning: "Search provider unavailable; returning verified sitemap/page links only.", discoveryError: { code: providerError.code, status: providerError.status } } :
+      htmlFallback ? { partial: true, warning: "Search/sitemap discovery was incomplete; returning available results with bounded links found on the requested page." } : {}),
   };
 }
 

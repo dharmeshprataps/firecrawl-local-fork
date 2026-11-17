@@ -51,10 +51,14 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY patches ./patches
 COPY native ./native
 
+# Optional native build bound selected by the self-host Compose profile.
+ARG CARGO_BUILD_JOBS
+
 # Install dependencies
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/native/target \
+    if [ -n "$CARGO_BUILD_JOBS" ]; then export CARGO_BUILD_JOBS; else unset CARGO_BUILD_JOBS; fi && \
     pnpm install --frozen-lockfile
 
 COPY . .
@@ -66,7 +70,12 @@ RUN test -s dist/src/harness.js && \
     test -s dist/src/controllers/v0/crawl-status.js && \
     printf '%s\n' "$GIT_SHA" > BUILD_SHA
 
-# Remove dev dependencies
+# Native source and development dependencies for targeted Vitest/snips runs.
+FROM build AS test
+COPY --from=go-build /app/sharedLibs/go-html-to-md/libhtml-to-markdown.so ./sharedLibs/go-html-to-md/
+
+# Preserve a reusable native test stage, and prune only the production dependency layer.
+FROM build AS production-deps
 RUN pnpm prune --prod --ignore-scripts
 
 # Runtime stage
@@ -93,7 +102,7 @@ ARG GIT_SHA=unknown
 ENV FIRECRAWL_BUILD_SHA=$GIT_SHA
 
 # Copy built application
-COPY --from=build /app/node_modules ./node_modules
+COPY --from=production-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/native ./native
 COPY --from=build /app/BUILD_SHA ./BUILD_SHA

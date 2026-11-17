@@ -62,6 +62,13 @@ const errorMap: Record<ErrorCodes, any> = {
   THIRD_PARTY_DATA_ENRICHMENT_NOT_ENABLED: ExchangeRefusedError,
   SAFE_MODE_BLOCKED: null,
   SCRAPE_SITE_RESTRICTION_BLOCKED: SiteRestrictionError,
+  // Local inference failures retain their typed code across the worker queue.
+  LOCAL_INFERENCE_UNAVAILABLE: TransportableError,
+  LOCAL_EXTRACTION_GROUNDING_FAILED: TransportableError,
+  // Local provider/capability failures are handled by API controllers.
+  SEARCH_PROVIDER_UNAVAILABLE: null,
+  SEARCH_CAPABILITY_UNAVAILABLE: null,
+
   SCRAPE_TIMEOUT: ScrapeJobTimeoutError,
   MAP_TIMEOUT: MapTimeoutError,
   UNKNOWN_ERROR: UnknownError,

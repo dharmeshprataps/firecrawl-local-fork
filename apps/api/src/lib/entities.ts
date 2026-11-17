@@ -100,6 +100,8 @@ export class Document {
 }
 
 export class SearchResult {
+  date?: string;
+  publishedDate?: string;
   url: string;
   title: string;
   description: string;
@@ -146,6 +148,8 @@ interface NewsSearchResult {
 }
 
 export interface WebSearchResult {
+  date?: string;
+  publishedDate?: string;
   url: string;
   title: string;
   description: string;

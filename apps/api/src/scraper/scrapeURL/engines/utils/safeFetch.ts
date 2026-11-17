@@ -6,6 +6,7 @@ import { interceptors } from "undici";
 import { CookieJar } from "tough-cookie";
 import { cookie } from "http-cookie-agent/undici";
 import IPAddr from "ipaddr.js";
+import { isLocalFixtureUrl } from "./localFixture";
 
 // Node's certificate verification errors, which rejectUnauthorized: false
 // suppresses. CRL and OpenSSL hostname codes are omitted: Node never checks those.
@@ -116,8 +117,8 @@ function createBaseAgent(skipTlsVerification: boolean) {
   );
 }
 
-function attachSecurityCheck(agent: undici.Dispatcher) {
-  agent.on("connect", (_, targets) => {
+function attachSecurityCheck(agent: undici.Dispatcher, allowFixture = false) {
+  agent.on("connect", (origin, targets) => {
     const client: undici.Client = targets.slice(-1)[0] as undici.Client;
     const socketSymbol = Object.getOwnPropertySymbols(client).find(
       x => x.description === "socket",
@@ -127,7 +128,8 @@ function attachSecurityCheck(agent: undici.Dispatcher) {
     if (
       socket.remoteAddress &&
       isIPPrivate(socket.remoteAddress) &&
-      config.ALLOW_LOCAL_WEBHOOKS !== true
+      config.ALLOW_LOCAL_WEBHOOKS !== true &&
+      !(allowFixture && isLocalFixtureUrl(origin))
     ) {
       socket.destroy(new InsecureConnectionError());
     }
@@ -136,7 +138,7 @@ function attachSecurityCheck(agent: undici.Dispatcher) {
 
 function makeSecureDispatcher(skipTlsVerification: boolean) {
   const agent = createBaseAgent(skipTlsVerification);
-  attachSecurityCheck(agent);
+  attachSecurityCheck(agent, true);
   return agent;
 }
 

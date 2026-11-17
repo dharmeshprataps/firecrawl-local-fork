@@ -710,6 +710,7 @@ const configSchema = z.object({
   // `plain:` prefix.
   SLACK_TOKEN_ENCRYPTION_KEY: z.string().optional(),
   ALLOW_LOCAL_WEBHOOKS: z.stringbool().optional(),
+  LOCAL_FIXTURE_ORIGIN: z.string().optional(),
   WEBHOOK_USE_RABBITMQ: z.stringbool().optional(),
 
   // Firecrawl Features
@@ -747,6 +748,9 @@ const configSchema = z.object({
   // AI/ML
   MODEL_NAME: z.string().optional(),
   OLLAMA_BASE_URL: z.string().optional(),
+  // Opt in to this kit's reviewed, bounded Mac inference profile. Ordinary
+  // Ollama configuration keeps the upstream provider behavior by default.
+  LOCAL_BOUNDED_INFERENCE: z.stringbool().default(false),
   VERTEX_CREDENTIALS: z.string().optional(),
   // Uses Vertex with ambient credentials when VERTEX_CREDENTIALS is unset.
   VERTEX_USE_ADC: z.stringbool().default(false),

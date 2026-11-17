@@ -19,6 +19,12 @@ import {
   jsonSchema,
 } from "ai";
 import { getModel } from "../../../lib/generic-ai";
+import { config } from "../../../config";
+import {
+  generateLocalInference,
+  requireLocalInferenceConfig,
+} from "../../../lib/local-inference";
+import type { ExtractionGrounding } from "../../../lib/grounded-quarterly";
 import { z } from "zod";
 import fs from "fs/promises";
 import Ajv from "ajv";
@@ -33,6 +39,7 @@ import { isZeroDataRetentionActive } from "../../../lib/otel-tracer";
 import { isAgentExtractModelValid } from "../../../controllers/v1/types";
 import { hasFormatOfType } from "../../../lib/format-utils";
 import { isUsOnly } from "../../../lib/us-only";
+import { UsOnlyUnavailableError } from "../error";
 import { aiTelemetry } from "../../../lib/ai-telemetry";
 
 // Smart model selection based on schema
@@ -458,6 +465,7 @@ export async function generateCompletions({
   zeroDataRetention: zeroDataRetentionOption,
 }: GenerateCompletionsOptions): Promise<{
   extract: any;
+  grounding?: ExtractionGrounding;
   numTokens: number;
   warning: string | undefined;
   totalUsage: TokenUsage;
@@ -465,6 +473,44 @@ export async function generateCompletions({
 }> {
   const zeroDataRetention =
     zeroDataRetentionOption === true || isZeroDataRetentionActive();
+  if (config.LOCAL_BOUNDED_INFERENCE) {
+    if (isUsOnly(teamFlags ?? undefined)) {
+      throw new UsOnlyUnavailableError(
+        "Bounded local inference is not available for teams restricted to US-only processing.",
+      );
+    }
+    const local = requireLocalInferenceConfig(
+      config.OLLAMA_BASE_URL,
+      config.MODEL_NAME,
+    );
+    if (markdown === undefined) {
+      throw new Error("document.markdown is undefined -- this is unexpected");
+    }
+    const result = await generateLocalInference({
+      baseURL: local.baseURL,
+      modelName: local.model,
+      markdown,
+      prompt: options.prompt,
+      system: options.systemPrompt,
+      schema: options.schema,
+      mode,
+      previousWarning,
+    });
+    costTrackingOptions.costTracking.addCall({
+      type: "other",
+      metadata: {
+        ...costTrackingOptions.metadata,
+        gcDetails: "local-only inference",
+      },
+      model: result.model,
+      cost: 0,
+      tokens: {
+        input: result.totalUsage.promptTokens,
+        output: result.totalUsage.completionTokens,
+      },
+    });
+    return result;
+  }
   let extract: any;
   let warning: string | undefined;
   let currentModel = model;
@@ -1079,23 +1125,29 @@ export async function performLLMExtract(
       teamFlags,
     };
 
-    const { extractedDataArray, warning, costLimitExceededTokenUsage } =
-      await extractData({
-        extractOptions: generationOptions,
-        urls: [meta.rewrittenUrl ?? meta.url],
-        useAgent,
-        checkPromptInjection: meta.options.checkPromptInjection,
-        scrapeId: meta.id,
-        metadata: {
-          teamId: meta.internalOptions.teamId,
-          functionId: llmFunctionId,
-        },
-      });
+    const {
+      extractedDataArray,
+      warning,
+      costLimitExceededTokenUsage,
+      grounding,
+    } = await extractData({
+      extractOptions: generationOptions,
+      urls: [meta.rewrittenUrl ?? meta.url],
+      useAgent,
+      checkPromptInjection: meta.options.checkPromptInjection,
+      scrapeId: meta.id,
+      metadata: {
+        teamId: meta.internalOptions.teamId,
+        functionId: llmFunctionId,
+      },
+    });
 
     if (warning) {
       document.warning =
         warning + (document.warning ? " " + document.warning : "");
     }
+
+    if (grounding) document.metadata.extractionGrounding = { ...grounding };
 
     // IMPORTANT: here it only get's the last page!!!
     const extractedData =
