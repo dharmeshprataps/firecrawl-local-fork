@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT/apps/api"
+# These selected unit suites require no native binary, credentials or running services.
+# Native PDF/conversion integration remains a separate explicitly reported check.
+exec ./node_modules/.bin/vitest run --reporter=default \
+  src/lib/__tests__/generic-ai-empty-base-url.test.ts \
+  src/lib/generic-ai.local.test.ts \
+  src/lib/grounded-quarterly.test.ts \
+  src/lib/html-code-preservation.local.test.ts \
+  src/lib/local-inference-error-serde.test.ts \
+  src/lib/local-inference.test.ts \
+  src/lib/map-utils.local.test.ts \
+  src/scraper/scrapeURL/engines/pdf/pdfParse.local.test.ts \
+  src/scraper/scrapeURL/engines/pdf/pdfParse.test.ts \
+  src/scraper/scrapeURL/transformers/llmExtract.local-routing.test.ts \
+  src/search/execute.test.ts \
+  src/search/local-map.test.ts \
+  src/search/local-provider-routing.test.ts \
+  src/search/localMapLinks.test.ts \
+  src/search/searxngClient.test.ts
