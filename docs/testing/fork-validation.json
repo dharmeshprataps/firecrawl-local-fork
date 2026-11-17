@@ -1,0 +1,93 @@
+{
+  "kind": "synchronized_upstream_fork_source_validation",
+  "dateUtc": "2026-11-17T20:28:12.181269+00:00",
+  "repository": "https://github.com/dharmeshprataps/firecrawl-local-fork",
+  "officialBase": "8ae5bed1d7ef3de532a29a981298da795361d115",
+  "testedApplicationBase": "b666afbab019df1a57328b9bc8db25d2c40552fe",
+  "baseDifference": "8ae5bed changes README.md only; application sources and lockfiles are identical between these two official commits.",
+  "deploymentChanged": false,
+  "environment": {
+    "os": "macOS",
+    "architecture": "arm64",
+    "node": "24",
+    "dependencies": "Frozen upstream lockfiles; install hooks skipped; native Rust binding unbuilt."
+  },
+  "frameworkTests": {
+    "totalPassed": 426,
+    "operationsMcpGateway": {
+      "passed": 130,
+      "command": "python3 local-ops/check-source.py",
+      "log": "fork-source-check.log"
+    },
+    "apiSelection": {
+      "passed": 283,
+      "files": 15,
+      "command": "./local-ops/check-api-additions",
+      "log": "api-additions-final.log",
+      "selectedFiles": [
+        "src/lib/__tests__/generic-ai-empty-base-url.test.ts",
+        "src/lib/generic-ai.local.test.ts",
+        "src/lib/grounded-quarterly.test.ts",
+        "src/lib/html-code-preservation.local.test.ts",
+        "src/lib/local-inference-error-serde.test.ts",
+        "src/lib/local-inference.test.ts",
+        "src/lib/map-utils.local.test.ts",
+        "src/scraper/scrapeURL/engines/pdf/pdfParse.local.test.ts",
+        "src/scraper/scrapeURL/engines/pdf/pdfParse.test.ts",
+        "src/scraper/scrapeURL/transformers/llmExtract.local-routing.test.ts",
+        "src/search/execute.test.ts",
+        "src/search/local-map.test.ts",
+        "src/search/local-provider-routing.test.ts",
+        "src/search/localMapLinks.test.ts",
+        "src/search/searxngClient.test.ts"
+      ]
+    },
+    "browserHelpers": {
+      "passed": 13,
+      "command": "npm test (apps/playwright-service-ts)",
+      "log": "browser-tests.log"
+    },
+    "note": "Selections include existing upstream compatibility tests. Counts are framework cases, not assertions, requests or new tests authored."
+  },
+  "browserBuild": {
+    "status": "passed",
+    "command": "npm run build (apps/playwright-service-ts)",
+    "log": "browser-build.log"
+  },
+  "mergedComposeReview": {
+    "status": "passed",
+    "services": [
+      "api",
+      "fixtures",
+      "nuq-postgres",
+      "playwright-service",
+      "rabbitmq",
+      "redis",
+      "searxng"
+    ],
+    "rawApi": "http://127.0.0.1:3012",
+    "apiMemoryBytes": 5368709120,
+    "browserMemoryBytes": 3221225472,
+    "fixtureException": "disabled in production",
+    "credentials": "generated locally; never included"
+  },
+  "typecheck": {
+    "status": "incomplete_without_native_binding",
+    "untouchedUpstreamDiagnostics": 68,
+    "forkDiagnostics": 71,
+    "additionalDiagnostics": "Three new native integration-test imports require unbuilt @mendable/firecrawl-rs declarations; no additional application-code diagnostics.",
+    "comparison": "api-typecheck-comparison.json"
+  },
+  "blocked": [
+    "Native PDF/conversion/attribute integration collection requires generated native binding.",
+    "Full API typecheck/build not established without native binding."
+  ],
+  "untested": [
+    "Fresh complete native Docker build",
+    "Live static/JavaScript/PDF/crawl/map service acceptance for this sync",
+    "Stop/start and recreated-container persistence for this sync",
+    "Hosted comparison, resource/performance benchmark and long-duration operation for this sync",
+    "Optional model and search provider live calls for this sync"
+  ],
+  "historicalEvidence": "v0.1.0-* and historical-live-summary.json are prior standalone/deployment evidence, separate from this fork validation."
+}

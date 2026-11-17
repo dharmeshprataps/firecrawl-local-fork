@@ -1,0 +1,28 @@
+{
+  "upstreamControl": {
+    "base": "b666afbab019df1a57328b9bc8db25d2c40552fe",
+    "diagnosticCount": 68
+  },
+  "fork": {
+    "diagnosticCount": 71
+  },
+  "additionalDiagnostics": [
+    {
+      "code": "TS2307",
+      "file": "src/lib/html-to-markdown.local.test.ts",
+      "message": "Cannot find module '@mendable/firecrawl-rs' or its corresponding type declarations."
+    },
+    {
+      "code": "TS2307",
+      "file": "src/scraper/scrapeURL/engines/pdf/nativePdf.local.test.ts",
+      "message": "Cannot find module '@mendable/firecrawl-rs' or its corresponding type declarations."
+    },
+    {
+      "code": "TS2307",
+      "file": "src/scraper/scrapeURL/transformers/performAttributes.local.test.ts",
+      "message": "Cannot find module '@mendable/firecrawl-rs' or its corresponding type declarations."
+    }
+  ],
+  "status": "blocked_without_generated_native_binding",
+  "note": "Same direct TypeScript compiler and frozen dependencies. Next upstream commit changes README only. No native stubs or fabricated declarations used."
+}

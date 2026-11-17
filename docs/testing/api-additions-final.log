@@ -1,0 +1,34 @@
+
+ RUN  v4.1.12 [checkout]/apps/api
+
+ ✓ src/lib/grounded-quarterly.test.ts (77 tests) 70ms
+ ✓ src/scraper/scrapeURL/engines/pdf/pdfParse.local.test.ts (4 tests) 71ms
+ ✓ src/lib/html-code-preservation.local.test.ts (11 tests) 18ms
+ ✓ src/search/localMapLinks.test.ts (6 tests) 13ms
+ ✓ src/lib/local-inference.test.ts (15 tests) 106ms
+ ✓ src/scraper/scrapeURL/engines/pdf/pdfParse.test.ts (4 tests) 9ms
+ ✓ src/lib/map-utils.local.test.ts (20 tests) 12ms
+ ✓ src/search/local-provider-routing.test.ts (8 tests) 7ms
+ ✓ src/scraper/scrapeURL/transformers/llmExtract.local-routing.test.ts (7 tests) 6ms
+ ✓ src/lib/local-inference-error-serde.test.ts (5 tests) 40ms
+stderr | src/lib/__tests__/generic-ai-empty-base-url.test.ts > loads the model providers when OPENAI_BASE_URL is ""
+The `keyFilename` option is deprecated. Please use the `auth` object constructor instead. For more details, see https://cloud.google.com/docs/authentication/external/externally-sourced-credentials.
+The `keyFilename` option is deprecated. Please use the `auth` object constructor instead. For more details, see https://cloud.google.com/docs/authentication/external/externally-sourced-credentials.
+
+ ✓ src/lib/generic-ai.local.test.ts (6 tests) 3ms
+stderr | src/lib/__tests__/generic-ai-empty-base-url.test.ts > loads the model providers when OPENAI_BASE_URL is "   "
+The `keyFilename` option is deprecated. Please use the `auth` object constructor instead. For more details, see https://cloud.google.com/docs/authentication/external/externally-sourced-credentials.
+The `keyFilename` option is deprecated. Please use the `auth` object constructor instead. For more details, see https://cloud.google.com/docs/authentication/external/externally-sourced-credentials.
+
+ ✓ src/search/local-map.test.ts (5 tests) 3ms
+ ✓ src/lib/__tests__/generic-ai-empty-base-url.test.ts (3 tests) 440ms
+   ✓ loads the model providers when OPENAI_BASE_URL is ""  427ms
+ ✓ src/search/execute.test.ts (77 tests) 14ms
+ ✓ src/search/searxngClient.test.ts (35 tests) 4017ms
+     ✓ keeps verified links when a later result page loses its engines  2002ms
+     ✓ refills a duplicate-heavy first page within the provider deadline  2003ms
+
+ Test Files  15 passed (15)
+      Tests  283 passed (283)
+   Start at  01:51:35
+   Duration  4.28s (transform 1.17s, setup 0ms, import 2.56s, tests 4.83s, environment 1ms)
